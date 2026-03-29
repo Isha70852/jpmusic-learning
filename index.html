@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日文歌學習機</title>
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <style>
+        :root {
+            --bg-main: #1e1e2e;
+            --bg-panel: #313244;
+            --bg-input: #45475a;
+            --text-main: #cdd6f4;
+            --text-sub: #a6adc8;
+            --accent: #cba6f7;
+            --accent-hover: #b4befe;
+            --lyric-active: #a6e3a1;
+            --furi-color: #f38ba8;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Meiryo, sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            height: 100vh;
+            box-sizing: border-box;
+            display: flex;
+            gap: 20px;
+            overflow: hidden;
+        }
+
+        /* --- 左側設定區 --- */
+        .sidebar {
+            width: 350px;
+            background: var(--bg-panel);
+            padding: 20px;
+            border-radius: 12px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            flex-shrink: 0;
+        }
+        .sidebar h2 { margin-top: 0; color: var(--accent); font-size: 1.4em; }
+        
+        .panel {
+            background: #181825;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #89b4fa;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .panel.ai-panel { border-left-color: var(--accent); }
+
+        input[type="text"], input[type="password"], select, input[type="file"] {
+            padding: 10px;
+            border: 1px solid #585b70;
+            background: var(--bg-input);
+            color: var(--text-main);
+            border-radius: 5px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 10px;
+            background-color: #89b4fa;
+            color: #11111b;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.2s;
+            width: 100%;
+        }
+        button:hover { background-color: #74c7ec; }
+        .ai-btn { background-color: var(--accent); }
+        .ai-btn:hover { background-color: var(--accent-hover); }
+
+        .toggle-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-sub);
+            font-weight: bold;
+        }
+
+        /* --- 右側內容區 --- */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            background: var(--bg-panel);
+            border-radius: 12px;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        .video-section {
+            height: 75%;
+            background: #11111b;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        iframe, video { width: 100%; height: 100%; border: none; }
+
+        .lyrics-section {
+            height: 25%;
+            background: #11111b;
+            border-radius: 8px;
+            overflow-y: auto;
+            padding: 100px 20px 200px 20px; /* 增加上下 padding 讓歌詞可置中滾動 */
+            scroll-behavior: smooth;
+            position: relative;
+        }
+
+        /* --- 歌詞排版 (Marumaru Style) --- */
+        .lyric-line {
+            text-align: center;
+            margin-bottom: 35px;
+            opacity: 0.4;
+            transition: all 0.3s ease;
+            transform: scale(0.95);
+        }
+        .lyric-line.active {
+            opacity: 1;
+            transform: scale(1.1);
+        }
+        .lyric-jp {
+            font-size: 1.6em;
+            font-weight: bold;
+            color: var(--text-main);
+            margin-bottom: 8px;
+        }
+        .lyric-zh {
+            font-size: 1.1em;
+            color: var(--text-sub);
+        }
+
+        /* --- 假名標註 (Ruby) 樣式 --- */
+        ruby { ruby-align: center; }
+        rt {
+            font-size: 0.5em;
+            color: var(--furi-color);
+            font-weight: normal;
+            transform: translateY(-2px);
+        }
+        /* 控制假名與翻譯隱藏的 class */
+        .hide-furigana rt { display: none; }
+        .hide-translation .lyric-zh { display: none; }
+
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h2>🎵 設定</h2>
+        
+        <div class="panel">
+            <label>1. 載入媒體</label>
+            <input type="text" id="ytUrl" placeholder="貼上 YouTube 網址">
+            <button onclick="loadYouTube()">讀取 YT 影片</button>
+            <hr style="border: 0.5px solid #585b70; width: 100%;">
+            <input type="file" id="localVideoFile" accept="video/*" onchange="loadLocalVideo()">
+            <div id="mediaStatus" style="color: #f9e2af; font-size: 0.85em; margin-top: 5px;">尚未載入</div>
+        </div>
+
+        <div class="panel">
+            <label>2. 抓取原版時間軸</label>
+            <input type="text" id="trackName" placeholder="歌曲名稱">
+            <input type="text" id="artistName" placeholder="歌手名稱">
+            <button onclick="searchLyrics()">搜尋歌詞</button>
+            <select id="lyricsVersion" style="display: none;" onchange="loadSelectedOriginalLyrics()"></select>
+            <div id="searchStatus" style="color: var(--text-sub); font-size: 0.85em;"></div>
+        </div>
+
+        <div class="panel ai-panel">
+            <label>3. 歌詞生成與載入</label>
+            <select id="aiModel">
+                <option value="gemini-3-flash-preview">Gemini 3 flash</option>
+                <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro </option>
+            </select>
+            <input type="password" id="geminiApiKey" placeholder="貼上 Gemini API Key">
+            <button id="translateBtn" class="ai-btn" onclick="translateWithAI()">產生假名與翻譯</button>
+            
+            <label style="margin-top: 10px; font-size: 0.9em; color: var(--text-sub);">📥 手動載入翻譯檔 (.txt / .lrc)</label>
+            <input type="file" id="localLyricsFile" accept=".txt,.lrc" onchange="loadLocalLyricsFile()">
+            
+            <div id="aiStatus" style="color: var(--text-sub); font-size: 0.85em;"></div>
+        </div>
+
+        <div class="panel">
+            <label>4. 顯示設定</label>
+            <div class="toggle-group">
+                <input type="checkbox" id="furiToggle" checked onchange="toggleFurigana()">
+                <label for="furiToggle">顯示漢字上方假名</label>
+            </div>
+            <div class="toggle-group">
+                <input type="checkbox" id="transToggle" checked onchange="toggleTranslation()">
+                <label for="transToggle">顯示中文翻譯</label>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="video-section" id="mediaContainer">
+            <div style="color: #585b70; display: flex; align-items: center; justify-content: center; height: 100%;">等待媒體載入...</div>
+        </div>
+        
+        <div class="lyrics-section" id="lyricsContainer">
+            <div style="color: #585b70; text-align: center; margin-top: 10%;">請先載入影片並翻譯歌詞</div>
+        </div>
+    </div>
+
+    <script>
+        // --- 核心變數 ---
+        let currentLyrics = []; // 格式: [{ time: 秒數, jp: "日文(含ruby)", zh: "中文翻譯" }]
+        let ytPlayer = null;
+        let localVideoElement = null;
+        let syncInterval = null;
+        let activeIndex = -1;
+        let currentMediaId = null; // 用來當作 LocalStorage 的 Key
+
+        // --- 抓取 YT 標題並自動填入搜尋框 ---
+        async function fetchYouTubeTitle(url) {
+            try {
+                const res = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(url)}`);
+                const data = await res.json();
+                if (data.title) {
+                    // 顯示在狀態列
+                    document.getElementById('mediaStatus').innerText = "已載入：" + data.title;
+                    // 自動填入下方搜尋框，省去手動輸入！
+                    document.getElementById('trackName').value = data.title;
+                }
+            } catch (e) { 
+                console.log("無法抓取標題", e); 
+            }
+        }
+
+        // --- 1. 媒體載入與資料庫快取功能 ---
+        function loadYouTube() {
+            const url = document.getElementById('ytUrl').value;
+            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+            const match = url.match(regExp);
+            currentMediaId = (match && match[2].length === 11) ? match[2] : null;
+
+            if (!currentMediaId) return alert("無效的 YouTube 連結！");
+
+            document.getElementById('mediaStatus').innerText = `載入中... (ID: ${currentMediaId})`;
+            
+            fetchYouTubeTitle(url);
+            
+            const container = document.getElementById('mediaContainer');
+            container.innerHTML = '<div id="ytPlayerDiv"></div>';
+            
+            ytPlayer = new YT.Player('ytPlayerDiv', { videoId: currentMediaId });
+            
+            if(syncInterval) clearInterval(syncInterval);
+            syncInterval = setInterval(() => {
+                if (ytPlayer && ytPlayer.getPlayerState && ytPlayer.getPlayerState() === 1) {
+                    updateLyricsHighlight(ytPlayer.getCurrentTime());
+                }
+            }, 100);
+
+            checkLocalDatabase(); 
+        }
+
+        function loadLocalVideo() {
+            const file = document.getElementById('localVideoFile').files[0];
+            if (!file) return;
+            
+            currentMediaId = file.name; // 使用檔名當作 Key
+            const fileUrl = URL.createObjectURL(file);
+            document.getElementById('mediaContainer').innerHTML = `<video id="localVideoPlayer" controls src="${fileUrl}"></video>`;
+            localVideoElement = document.getElementById('localVideoPlayer');
+            
+            document.getElementById('mediaStatus').innerText = "已載入本地影片：" + file.name;
+            
+            if(syncInterval) clearInterval(syncInterval);
+            localVideoElement.addEventListener('timeupdate', () => {
+                updateLyricsHighlight(localVideoElement.currentTime);
+            });
+
+            checkLocalDatabase(); // 檢查是否有快取歌詞
+        }
+
+        // 檢查 LocalStorage 是否有存過這首歌
+        function checkLocalDatabase() {
+            if (!currentMediaId) return;
+            const savedData = localStorage.getItem('lyrics_' + currentMediaId);
+            if (savedData) {
+                if (confirm('💾 系統偵測到這部影片之前已經生成過歌詞與翻譯，是否直接載入？\n(按確定直接載入，按取消重新抓取)')) {
+                    currentLyrics = JSON.parse(savedData);
+                    renderLyrics();
+                    document.getElementById('aiStatus').innerText = "✅ 已從本地資料庫載入歌詞。";
+                }
+            }
+        }
+
+        // --- 2. 歌詞搜尋 ---
+        let searchResults = [];
+        async function searchLyrics() {
+            const track = document.getElementById('trackName').value;
+            const artist = document.getElementById('artistName').value;
+            const statusText = document.getElementById('searchStatus');
+            
+            if (!track) return alert("請輸入歌曲名稱！");
+            statusText.innerText = "搜尋中...";
+            
+            try {
+                const res = await fetch(`https://lrclib.net/api/search?track_name=${encodeURIComponent(track)}&artist_name=${encodeURIComponent(artist)}`);
+                const data = await res.json();
+                searchResults = data.filter(item => item.syncedLyrics);
+                
+                const selectEl = document.getElementById('lyricsVersion');
+                if (searchResults.length > 0) {
+                    statusText.innerText = `找到 ${searchResults.length} 個版本，已準備就緒。`;
+                    selectEl.innerHTML = "";
+                    searchResults.forEach((item, index) => {
+                        const mins = Math.floor(item.duration / 60);
+                        const secs = Math.floor(item.duration % 60).toString().padStart(2, '0');
+                        selectEl.add(new Option(`[${mins}:${secs}] 專輯: ${item.albumName || '未知'}`, index));
+                    });
+                    selectEl.style.display = "block";
+                } else {
+                    statusText.innerText = "找不到時間軸歌詞。";
+                    selectEl.style.display = "none";
+                }
+            } catch (e) { statusText.innerText = "連線失敗。"; }
+        }
+
+        // --- 3. AI 翻譯與解析 ---
+        async function translateWithAI() {
+            const apiKey = document.getElementById('geminiApiKey').value;
+            const model = document.getElementById('aiModel').value;
+            const trackName = document.getElementById('trackName').value;
+            const aiStatusText = document.getElementById('aiStatus');
+            const btn = document.getElementById('translateBtn');
+
+            if (!apiKey) return alert("請輸入 API Key！");
+            if (searchResults.length === 0) return alert("請先搜尋原版歌詞！");
+            if (!currentMediaId) return alert("請先載入 YouTube 或本地影片，以便儲存歌詞！");
+
+            const index = document.getElementById('lyricsVersion').value;
+            const selectedLRC = searchResults[index].syncedLyrics;
+
+            aiStatusText.innerText = "🧠 AI 正在標註假名並翻譯中，請稍候...";
+            btn.disabled = true;
+
+            const prompt = `
+你是一位專業的日文翻譯與歌詞排版專家。請處理以下 LRC 格式的日文歌詞。
+歌曲名稱：${trackName}
+
+【嚴格輸出格式要求】：
+1. 必須保留時間標籤：每行開頭必須是原始的 [mm:ss.xx]。
+2. 標註平假名：請將日文歌詞中的「所有漢字」加上 HTML 的 <ruby> 與 <rt> 標籤來標註平假名。例如：<ruby>断罪<rt>だんざい</rt></ruby>の<ruby>花<rt>はな</rt></ruby>。
+3. 加上中文翻譯：在標註完假名的日文後面加上「 / 」，然後接上根據原曲語境翻譯的繁體中文。
+4. 輸出範例：[00:15.34] <ruby>断罪<rt>だんざい</rt></ruby>の<ruby>花<rt>はな</rt></ruby> / 斷罪之花
+5. 純音樂無歌詞的行數，請照抄時間標籤即可。
+6. 請直接輸出轉換後的純文字 LRC，絕對不要使用 Markdown 代碼區塊 (不要加 \`\`\`)。
+
+原始歌詞：
+${selectedLRC}
+`;
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+
+                const data = await response.json();
+                if (data.error) throw new Error(data.error.message);
+
+                let resultText = data.candidates[0].content.parts[0].text;
+                resultText = resultText.replace(/```lrc/g, "").replace(/```/g, "").trim();
+                
+                // 解析 AI 輸出的特殊格式 LRC
+                parseAILyrics(resultText);
+                
+                // 存入 LocalStorage
+                localStorage.setItem('lyrics_' + currentMediaId, JSON.stringify(currentLyrics));
+                
+                renderLyrics();
+                aiStatusText.innerText = "✅ 處理完成並已自動儲存！";
+            } catch (error) {
+                aiStatusText.innerText = "❌ 失敗: " + error.message;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // 將字串解析為物件陣列 (共用於 AI 與手動上傳)
+        function parseAILyrics(lrcString) {
+            currentLyrics = [];
+            const lines = lrcString.split('\n');
+            const timeRegex = /\[(\d{2}):(\d{2}(?:\.\d+)?)\](.*)/;
+            
+            for (let line of lines) {
+                const match = line.match(timeRegex);
+                if (match) {
+                    const time = (parseInt(match[1]) * 60) + parseFloat(match[2]);
+                    const content = match[3].trim();
+                    
+                    let jpText = content;
+                    let zhText = "";
+                    
+                    // 利用 " / " 來分割日文與中文
+                    const splitIdx = content.lastIndexOf(' / ');
+                    if (splitIdx !== -1) {
+                        jpText = content.substring(0, splitIdx).trim();
+                        zhText = content.substring(splitIdx + 3).trim();
+                    } else if (content.includes('/')) {
+                        const parts = content.split('/');
+                        zhText = parts.pop().trim();
+                        jpText = parts.join('/').trim();
+                    }
+
+                    currentLyrics.push({ time: time, jp: jpText, zh: zhText });
+                }
+            }
+        }
+
+        // --- 新增：手動讀取本地 TXT/LRC 檔案 ---
+        function loadLocalLyricsFile() {
+            const file = document.getElementById('localLyricsFile').files[0];
+            if (!file) return;
+
+            const aiStatusText = document.getElementById('aiStatus');
+            aiStatusText.innerText = "📄 讀取檔案中...";
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const text = e.target.result;
+                parseAILyrics(text);
+                
+                // 順手存進 LocalStorage，下次就可以直接載入
+                if (currentMediaId) {
+                    localStorage.setItem('lyrics_' + currentMediaId, JSON.stringify(currentLyrics));
+                }
+                
+                renderLyrics();
+                aiStatusText.innerText = "✅ 成功讀取手動上傳的歌詞檔！";
+            };
+            reader.onerror = function() {
+                aiStatusText.innerText = "❌ 讀取檔案失敗！";
+            };
+            reader.readAsText(file);
+        }
+
+        // --- 4. 畫面渲染與連動 ---
+        function renderLyrics() {
+            const container = document.getElementById('lyricsContainer');
+            container.innerHTML = ""; 
+            
+            currentLyrics.forEach((lyric, idx) => {
+                const div = document.createElement('div');
+                div.className = 'lyric-line';
+                div.id = 'lyric-' + idx;
+                
+                // 上半部日文(含ruby) + 下半部中文
+                div.innerHTML = `
+                    <div class="lyric-jp">${lyric.jp}</div>
+                    <div class="lyric-zh">${lyric.zh}</div>
+                `;
+                container.appendChild(div);
+            });
+            
+            activeIndex = -1; 
+            toggleFurigana(); // 確保重新渲染時套用目前的假名開關狀態
+            toggleTranslation(); // 確保重新渲染時套用目前的翻譯開關狀態
+        }
+
+        function toggleFurigana() {
+            const container = document.getElementById('lyricsContainer');
+            if (document.getElementById('furiToggle').checked) {
+                container.classList.remove('hide-furigana');
+            } else {
+                container.classList.add('hide-furigana');
+            }
+        }
+
+        // --- 新增：切換翻譯顯示 ---
+        function toggleTranslation() {
+            const container = document.getElementById('lyricsContainer');
+            if (document.getElementById('transToggle').checked) {
+                container.classList.remove('hide-translation');
+            } else {
+                container.classList.add('hide-translation');
+            }
+        }
+
+        function updateLyricsHighlight(currentTime) {
+            if (currentLyrics.length === 0) return;
+
+            let newActiveIndex = -1;
+            for (let i = 0; i < currentLyrics.length; i++) {
+                if (currentTime >= currentLyrics[i].time) newActiveIndex = i;
+                else break;
+            }
+
+            if (newActiveIndex !== activeIndex && newActiveIndex !== -1) {
+                if (activeIndex !== -1) {
+                    const oldEl = document.getElementById('lyric-' + activeIndex);
+                    if (oldEl) oldEl.classList.remove('active');
+                }
+                const newEl = document.getElementById('lyric-' + newActiveIndex);
+                if (newEl) {
+                    newEl.classList.add('active');
+                    // 精準置中滾動
+                    const container = document.getElementById('lyricsContainer');
+                    container.scrollTop = newEl.offsetTop - (container.clientHeight / 2) + (newEl.clientHeight / 2);
+                }
+                activeIndex = newActiveIndex;
+            }
+        }
+    </script>
+</body>
+</html>
