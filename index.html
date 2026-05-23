@@ -31,7 +31,6 @@
             overflow: hidden;
         }
 
-        /* --- 左側設定區 --- */
         .sidebar {
             width: 350px;
             background: var(--bg-panel);
@@ -79,6 +78,15 @@
         button:hover { background-color: #74c7ec; }
         .ai-btn { background-color: var(--accent); }
         .ai-btn:hover { background-color: var(--accent-hover); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* ✨ 新增：取得模型按鈕用較小樣式 */
+        .fetch-model-btn {
+            background-color: #a6e3a1;
+            font-size: 0.85em;
+            padding: 7px;
+        }
+        .fetch-model-btn:hover { background-color: #94d994; }
 
         .toggle-group {
             display: flex;
@@ -88,7 +96,6 @@
             font-weight: bold;
         }
 
-        /* --- 右側內容區 --- */
         .main-content {
             flex: 1;
             display: flex;
@@ -113,12 +120,11 @@
             background: #11111b;
             border-radius: 8px;
             overflow-y: auto;
-            padding: 100px 20px 200px 20px; /* 增加上下 padding 讓歌詞可置中滾動 */
+            padding: 100px 20px 200px 20px;
             scroll-behavior: smooth;
             position: relative;
         }
 
-        /* --- 歌詞排版 (Marumaru Style) --- */
         .lyric-line {
             text-align: center;
             margin-bottom: 35px;
@@ -141,7 +147,6 @@
             color: var(--text-sub);
         }
 
-        /* --- 假名標註 (Ruby) 樣式 --- */
         ruby { ruby-align: center; }
         rt {
             font-size: 0.5em;
@@ -149,10 +154,45 @@
             font-weight: normal;
             transform: translateY(-2px);
         }
-        /* 控制假名與翻譯隱藏的 class */
         .hide-furigana rt { display: none; }
         .hide-translation .lyric-zh { display: none; }
 
+        .saved-item {
+        background: #1e1e2e;
+        border-radius: 6px;
+        padding: 8px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        font-size: 0.82em;
+        border-left: 3px solid #89b4fa;
+        }
+        .saved-item .saved-title {
+            color: var(--text-main);
+            font-weight: bold;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .saved-item .saved-meta {
+            color: var(--text-sub);
+            font-size: 0.9em;
+        }
+        .saved-item .saved-actions {
+            display: flex;
+            gap: 6px;
+        }
+        .saved-item .saved-actions button {
+            flex: 1;
+            padding: 5px;
+            font-size: 0.85em;
+        }
+        .btn-load  { background-color: #89b4fa; }
+        .btn-dl    { background-color: #a6e3a1; color: #11111b; }
+        .btn-del   { background-color: #f38ba8; color: #11111b; }
+        .btn-load:hover { background-color: #74c7ec; }
+        .btn-dl:hover   { background-color: #7ec87e; }
+        .btn-del:hover  { background-color: #e06c75; }
     </style>
 </head>
 <body>
@@ -180,11 +220,26 @@
 
         <div class="panel ai-panel">
             <label>3. 歌詞生成與載入</label>
-            <select id="aiModel">
-                <option value="gemini-3-flash-preview">Gemini 3 flash</option>
-                <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro </option>
-            </select>
-            <input type="password" id="geminiApiKey" placeholder="貼上 Gemini API Key">
+
+            <!-- ✨ 修改區塊開始：動態模型選擇 -->
+            <div style="display: flex; gap: 8px; align-items: stretch;">
+                <input type="password" id="geminiApiKey" placeholder="貼上 Gemini API Key" style="flex: 1; width: auto;">
+                <button class="fetch-model-btn" style="width: auto; white-space: nowrap;" onclick="fetchModelList()" id="fetchModelBtn" title="輸入 API Key 後點此取得模型清單">🔄 取得模型</button>
+            </div>
+
+            <div id="modelSelectWrapper">
+                <!-- 預設顯示常用模型（未取得清單前的 fallback） -->
+                <select id="aiModel">
+                    <option value="" disabled>— 請先點擊「取得模型」—</option>
+                    <option value="gemini-2.5-flash" selected>gemini-2.5-flash（預設）</option>
+                    <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                    <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+                    <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
+                </select>
+                <div id="modelStatus" style="color: var(--text-sub); font-size: 0.8em; margin-top: 4px;"></div>
+            </div>
+            <!-- ✨ 修改區塊結束 -->
+
             <button id="translateBtn" class="ai-btn" onclick="translateWithAI()">產生假名與翻譯</button>
             
             <label style="margin-top: 10px; font-size: 0.9em; color: var(--text-sub);">📥 手動載入翻譯檔 (.txt / .lrc)</label>
@@ -204,7 +259,31 @@
                 <label for="transToggle">顯示中文翻譯</label>
             </div>
         </div>
-    </div>
+
+        <!-- 5. 下載當前歌詞 -->
+        <div class="panel">
+            <label>5. 下載當前歌詞</label>
+            <button onclick="downloadCurrentLyrics()" style="background-color:#a6e3a1; color:#11111b;">
+                ⬇️ 下載為 .txt（LRC 格式）
+            </button>
+            <div id="downloadStatus" style="color: var(--text-sub); font-size: 0.85em;"></div>
+        </div>
+
+        <!-- 6. 已儲存的歌詞紀錄 -->
+        <div class="panel">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <label>6. 已儲存歌詞紀錄</label>
+                <button onclick="refreshSavedList()" 
+                        style="width:auto; padding:4px 10px; font-size:0.8em; background:#585b70; color:var(--text-main);">
+                    🔄 重整
+                </button>
+            </div>
+            <div id="savedLyricsList" style="display:flex; flex-direction:column; gap:8px; max-height:300px; overflow-y:auto;">
+                <!-- 由 JS 動態填入 -->
+            </div>
+            <div id="savedListStatus" style="color: var(--text-sub); font-size: 0.82em;"></div>
+        </div>
+            </div>
 
     <div class="main-content">
         <div class="video-section" id="mediaContainer">
@@ -217,31 +296,104 @@
     </div>
 
     <script>
-        // --- 核心變數 ---
-        let currentLyrics = []; // 格式: [{ time: 秒數, jp: "日文(含ruby)", zh: "中文翻譯" }]
+        let currentLyrics = [];
         let ytPlayer = null;
         let localVideoElement = null;
         let syncInterval = null;
         let activeIndex = -1;
-        let currentMediaId = null; // 用來當作 LocalStorage 的 Key
+        let currentMediaId = null;
 
-        // --- 抓取 YT 標題並自動填入搜尋框 ---
+        // ✨ 新增：動態取得 Gemini 模型清單
+        async function fetchModelList() {
+            const apiKey = document.getElementById('geminiApiKey').value.trim();
+            const modelStatusEl = document.getElementById('modelStatus');
+            const fetchBtn = document.getElementById('fetchModelBtn');
+
+            if (!apiKey) {
+                alert("請先輸入 Gemini API Key！");
+                return;
+            }
+
+            modelStatusEl.innerText = "⏳ 取得模型清單中...";
+            fetchBtn.disabled = true;
+
+            try {
+                const res = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=100`
+                );
+                const data = await res.json();
+
+                if (data.error) throw new Error(data.error.message);
+
+                // 篩選支援 generateContent 的模型（排除 embedding、TTS、Veo 等）
+                const generativeModels = (data.models || []).filter(m =>
+                    m.supportedGenerationMethods &&
+                    m.supportedGenerationMethods.includes("generateContent")
+                );
+
+                if (generativeModels.length === 0) {
+                    throw new Error("此 API Key 沒有可用的 generateContent 模型");
+                }
+
+                // 重建 select 選項
+                const selectEl = document.getElementById('aiModel');
+                selectEl.innerHTML = "";
+
+                // 優先排序：flash 系列在前，pro 在後
+                generativeModels.sort((a, b) => {
+                    const nameA = a.name.toLowerCase();
+                    const nameB = b.name.toLowerCase();
+                    // 實驗性/preview 的排到最後
+                    const isExpA = nameA.includes("exp") || nameA.includes("latest");
+                    const isExpB = nameB.includes("exp") || nameB.includes("latest");
+                    if (isExpA !== isExpB) return isExpA ? 1 : -1;
+                    return nameA.localeCompare(nameB);
+                });
+
+                let defaultSet = false;
+                generativeModels.forEach(m => {
+                    // m.name 格式為 "models/gemini-xxx"，取後半段作為 API 呼叫用的 model id
+                    const modelId = m.name.replace("models/", "");
+                    const displayLabel = m.displayName || modelId;
+                    const opt = new Option(`${displayLabel} (${modelId})`, modelId);
+                    
+                    // 預設選取 gemini-2.5-flash 或清單第一個
+                    if (!defaultSet && modelId.includes("2.5-flash") && !modelId.includes("lite") && !modelId.includes("live") && !modelId.includes("tts")) {
+                        opt.selected = true;
+                        defaultSet = true;
+                    }
+                    selectEl.add(opt);
+                });
+
+                // 若沒找到預設，選第一個
+                if (!defaultSet && selectEl.options.length > 0) {
+                    selectEl.options[0].selected = true;
+                }
+
+                modelStatusEl.style.color = "#a6e3a1";
+                modelStatusEl.innerText = `✅ 已載入 ${generativeModels.length} 個可用模型`;
+
+            } catch (e) {
+                modelStatusEl.style.color = "#f38ba8";
+                modelStatusEl.innerText = "❌ 失敗：" + e.message;
+            } finally {
+                fetchBtn.disabled = false;
+            }
+        }
+
+        // --- 抓取 YT 標題 ---
         async function fetchYouTubeTitle(url) {
             try {
                 const res = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(url)}`);
                 const data = await res.json();
                 if (data.title) {
-                    // 顯示在狀態列
                     document.getElementById('mediaStatus').innerText = "已載入：" + data.title;
-                    // 自動填入下方搜尋框，省去手動輸入！
                     document.getElementById('trackName').value = data.title;
                 }
-            } catch (e) { 
-                console.log("無法抓取標題", e); 
-            }
+            } catch (e) { console.log("無法抓取標題", e); }
         }
 
-        // --- 1. 媒體載入與資料庫快取功能 ---
+        // --- 1. 媒體載入 ---
         function loadYouTube() {
             const url = document.getElementById('ytUrl').value;
             const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
@@ -251,12 +403,10 @@
             if (!currentMediaId) return alert("無效的 YouTube 連結！");
 
             document.getElementById('mediaStatus').innerText = `載入中... (ID: ${currentMediaId})`;
-            
             fetchYouTubeTitle(url);
             
             const container = document.getElementById('mediaContainer');
             container.innerHTML = '<div id="ytPlayerDiv"></div>';
-            
             ytPlayer = new YT.Player('ytPlayerDiv', { videoId: currentMediaId });
             
             if(syncInterval) clearInterval(syncInterval);
@@ -266,18 +416,17 @@
                 }
             }, 100);
 
-            checkLocalDatabase(); 
+            checkLocalDatabase();
         }
 
         function loadLocalVideo() {
             const file = document.getElementById('localVideoFile').files[0];
             if (!file) return;
             
-            currentMediaId = file.name; // 使用檔名當作 Key
+            currentMediaId = file.name;
             const fileUrl = URL.createObjectURL(file);
             document.getElementById('mediaContainer').innerHTML = `<video id="localVideoPlayer" controls src="${fileUrl}"></video>`;
             localVideoElement = document.getElementById('localVideoPlayer');
-            
             document.getElementById('mediaStatus').innerText = "已載入本地影片：" + file.name;
             
             if(syncInterval) clearInterval(syncInterval);
@@ -285,10 +434,9 @@
                 updateLyricsHighlight(localVideoElement.currentTime);
             });
 
-            checkLocalDatabase(); // 檢查是否有快取歌詞
+            checkLocalDatabase();
         }
 
-        // 檢查 LocalStorage 是否有存過這首歌
         function checkLocalDatabase() {
             if (!currentMediaId) return;
             const savedData = localStorage.getItem('lyrics_' + currentMediaId);
@@ -333,22 +481,24 @@
             } catch (e) { statusText.innerText = "連線失敗。"; }
         }
 
-        // --- 3. AI 翻譯與解析 ---
+        // --- 3. AI 翻譯 ---
         async function translateWithAI() {
-            const apiKey = document.getElementById('geminiApiKey').value;
+            const apiKey = document.getElementById('geminiApiKey').value.trim();
+            // ✨ 直接讀取動態 select 的當前值
             const model = document.getElementById('aiModel').value;
             const trackName = document.getElementById('trackName').value;
             const aiStatusText = document.getElementById('aiStatus');
             const btn = document.getElementById('translateBtn');
 
             if (!apiKey) return alert("請輸入 API Key！");
+            if (!model) return alert("請先點擊「取得模型」並選擇模型！");
             if (searchResults.length === 0) return alert("請先搜尋原版歌詞！");
             if (!currentMediaId) return alert("請先載入 YouTube 或本地影片，以便儲存歌詞！");
 
             const index = document.getElementById('lyricsVersion').value;
             const selectedLRC = searchResults[index].syncedLyrics;
 
-            aiStatusText.innerText = "🧠 AI 正在標註假名並翻譯中，請稍候...";
+            aiStatusText.innerText = `🧠 使用 ${model} 標註假名並翻譯中，請稍候...`;
             btn.disabled = true;
 
             const prompt = `
@@ -382,14 +532,10 @@ ${selectedLRC}
                 let resultText = data.candidates[0].content.parts[0].text;
                 resultText = resultText.replace(/```lrc/g, "").replace(/```/g, "").trim();
                 
-                // 解析 AI 輸出的特殊格式 LRC
                 parseAILyrics(resultText);
-                
-                // 存入 LocalStorage
                 localStorage.setItem('lyrics_' + currentMediaId, JSON.stringify(currentLyrics));
-                
                 renderLyrics();
-                aiStatusText.innerText = "✅ 處理完成並已自動儲存！";
+                aiStatusText.innerText = `✅ 使用 ${model} 處理完成並已自動儲存！`;
             } catch (error) {
                 aiStatusText.innerText = "❌ 失敗: " + error.message;
             } finally {
@@ -397,7 +543,6 @@ ${selectedLRC}
             }
         }
 
-        // 將字串解析為物件陣列 (共用於 AI 與手動上傳)
         function parseAILyrics(lrcString) {
             currentLyrics = [];
             const lines = lrcString.split('\n');
@@ -412,7 +557,6 @@ ${selectedLRC}
                     let jpText = content;
                     let zhText = "";
                     
-                    // 利用 " / " 來分割日文與中文
                     const splitIdx = content.lastIndexOf(' / ');
                     if (splitIdx !== -1) {
                         jpText = content.substring(0, splitIdx).trim();
@@ -428,7 +572,6 @@ ${selectedLRC}
             }
         }
 
-        // --- 新增：手動讀取本地 TXT/LRC 檔案 ---
         function loadLocalLyricsFile() {
             const file = document.getElementById('localLyricsFile').files[0];
             if (!file) return;
@@ -440,12 +583,9 @@ ${selectedLRC}
             reader.onload = function(e) {
                 const text = e.target.result;
                 parseAILyrics(text);
-                
-                // 順手存進 LocalStorage，下次就可以直接載入
                 if (currentMediaId) {
                     localStorage.setItem('lyrics_' + currentMediaId, JSON.stringify(currentLyrics));
                 }
-                
                 renderLyrics();
                 aiStatusText.innerText = "✅ 成功讀取手動上傳的歌詞檔！";
             };
@@ -464,8 +604,6 @@ ${selectedLRC}
                 const div = document.createElement('div');
                 div.className = 'lyric-line';
                 div.id = 'lyric-' + idx;
-                
-                // 上半部日文(含ruby) + 下半部中文
                 div.innerHTML = `
                     <div class="lyric-jp">${lyric.jp}</div>
                     <div class="lyric-zh">${lyric.zh}</div>
@@ -474,8 +612,8 @@ ${selectedLRC}
             });
             
             activeIndex = -1; 
-            toggleFurigana(); // 確保重新渲染時套用目前的假名開關狀態
-            toggleTranslation(); // 確保重新渲染時套用目前的翻譯開關狀態
+            toggleFurigana();
+            toggleTranslation();
         }
 
         function toggleFurigana() {
@@ -487,7 +625,6 @@ ${selectedLRC}
             }
         }
 
-        // --- 新增：切換翻譯顯示 ---
         function toggleTranslation() {
             const container = document.getElementById('lyricsContainer');
             if (document.getElementById('transToggle').checked) {
@@ -514,13 +651,146 @@ ${selectedLRC}
                 const newEl = document.getElementById('lyric-' + newActiveIndex);
                 if (newEl) {
                     newEl.classList.add('active');
-                    // 精準置中滾動
                     const container = document.getElementById('lyricsContainer');
                     container.scrollTop = newEl.offsetTop - (container.clientHeight / 2) + (newEl.clientHeight / 2);
                 }
                 activeIndex = newActiveIndex;
             }
         }
+
+        // ======== 5. 下載當前歌詞 ========
+
+        /**
+        * 將 currentLyrics 陣列重組為 LRC 格式字串
+        * 格式：[mm:ss.xx] <ruby>...</ruby> / 中文翻譯
+        */
+        function lyricsToLRC(lyrics) {
+            return lyrics.map(item => {
+                const totalSec = item.time;
+                const mm = String(Math.floor(totalSec / 60)).padStart(2, '0');
+                const ss = (totalSec % 60).toFixed(2).padStart(5, '0');
+                const content = item.zh ? `${item.jp} / ${item.zh}` : item.jp;
+                return `[${mm}:${ss}] ${content}`;
+            }).join('\n');
+        }
+
+        function downloadCurrentLyrics() {
+            const statusEl = document.getElementById('downloadStatus');
+            if (currentLyrics.length === 0) {
+                statusEl.style.color = '#f38ba8';
+                statusEl.innerText = '❌ 尚無歌詞可下載，請先翻譯或載入歌詞。';
+                return;
+            }
+
+            const lrcText = lyricsToLRC(currentLyrics);
+            // 用媒體 ID 或預設名稱當檔名
+            const filename = (currentMediaId ? currentMediaId : 'lyrics') + '.txt';
+            triggerDownload(lrcText, filename);
+
+            statusEl.style.color = '#a6e3a1';
+            statusEl.innerText = `✅ 已下載：${filename}（共 ${currentLyrics.length} 行）`;
+        }
+
+        /** 共用觸發下載函式 */
+        function triggerDownload(text, filename) {
+            const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+
+        // ======== 6. LocalStorage 歌詞管理 ========
+
+        /** 掃描 localStorage，找出所有 lyrics_ 開頭的 Key */
+        function getSavedLyricsKeys() {
+            const keys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith('lyrics_')) keys.push(k);
+            }
+            return keys;
+        }
+
+        /** 重整已儲存清單（頁面載入及儲存後自動呼叫） */
+        function refreshSavedList() {
+            const listEl = document.getElementById('savedLyricsList');
+            const statusEl = document.getElementById('savedListStatus');
+            const keys = getSavedLyricsKeys();
+
+            listEl.innerHTML = '';
+
+            if (keys.length === 0) {
+                statusEl.innerText = '目前無任何已儲存的歌詞。';
+                return;
+            }
+
+            statusEl.innerText = `共 ${keys.length} 筆已儲存。`;
+
+            keys.forEach(key => {
+                let lyrics = [];
+                try { lyrics = JSON.parse(localStorage.getItem(key)); } catch(e) { return; }
+
+                const mediaId = key.replace('lyrics_', '');
+                // 嘗試取第一行有中文的歌詞作為預覽
+                const preview = lyrics.find(l => l.zh)?.zh || lyrics[0]?.jp || '（無預覽）';
+
+                const item = document.createElement('div');
+                item.className = 'saved-item';
+                item.innerHTML = `
+                    <div class="saved-title" title="${mediaId}">🎵 ${mediaId}</div>
+                    <div class="saved-meta">共 ${lyrics.length} 行 ・ 預覽：${preview}</div>
+                    <div class="saved-actions">
+                        <button class="btn-load" onclick="loadSavedLyrics('${key}')">📂 載入</button>
+                        <button class="btn-dl"   onclick="downloadSavedLyrics('${key}')">⬇️ 下載</button>
+                        <button class="btn-del"  onclick="deleteSavedLyrics('${key}', this)">🗑️ 刪除</button>
+                    </div>
+                `;
+                listEl.appendChild(item);
+            });
+        }
+
+        /** 載入指定 key 的歌詞到播放器 */
+        function loadSavedLyrics(key) {
+            const data = localStorage.getItem(key);
+            if (!data) return alert('找不到此筆資料！');
+            currentLyrics = JSON.parse(data);
+            renderLyrics();
+            currentMediaId = key.replace('lyrics_', '');
+            document.getElementById('aiStatus').innerText = `✅ 已從紀錄載入：${currentMediaId}`;
+            // 滾動到顯示設定區，讓使用者看到歌詞已更新
+            document.getElementById('lyricsContainer').scrollTop = 0;
+        }
+
+        /** 下載指定 key 的歌詞為 txt */
+        function downloadSavedLyrics(key) {
+            const data = localStorage.getItem(key);
+            if (!data) return alert('找不到此筆資料！');
+            const lyrics = JSON.parse(data);
+            const lrcText = lyricsToLRC(lyrics);
+            const filename = key.replace('lyrics_', '') + '.txt';
+            triggerDownload(lrcText, filename);
+        }
+
+        /** 刪除指定 key 並移除 DOM 元素 */
+        function deleteSavedLyrics(key, btn) {
+            if (!confirm(`確定要刪除「${key.replace('lyrics_', '')}」的歌詞紀錄嗎？`)) return;
+            localStorage.removeItem(key);
+            // 移除該 DOM 項目
+            btn.closest('.saved-item').remove();
+            // 更新計數
+            const remaining = getSavedLyricsKeys().length;
+            document.getElementById('savedListStatus').innerText =
+                remaining > 0 ? `共 ${remaining} 筆已儲存。` : '目前無任何已儲存的歌詞。';
+        }
+
+        // 頁面載入時自動掃描一次
+        window.addEventListener('DOMContentLoaded', refreshSavedList);
     </script>
 </body>
 </html>
